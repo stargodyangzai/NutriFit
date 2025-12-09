@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriFit 健康管理 v1.1</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #10B981; --primary-dark: #059669; --bg-body: #F3F4F6; --bg-white: #ffffff; --text-main: #1F2937; --text-sub: #6B7280; --border: #E5E7EB; --blue: #3B82F6; --red: #EF4444; --pink: #EC4899; --orange: #F97316; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        * { box-sizing: border-box; }
+        
+        /* === 登录页 === */
+        #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #10B981 0%, #3B82F6 100%); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .auth-box { background: rgba(255, 255, 255, 0.95); padding: 40px; border-radius: 24px; width: 90%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; backdrop-filter: blur(10px); animation: fadeIn 0.5s ease-out; display: flex; flex-direction: column; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .auth-title { font-size: 28px; font-weight: 800; color: #111; margin-bottom: 4px; letter-spacing: -0.5px; }
+        .auth-sub { font-size: 14px; color: #666; margin-bottom: 24px; }
+        .auth-footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #9CA3AF; line-height: 1.6; }
+        
+        /* === 布局 === */
+        #loading-spinner { display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 8px 20px; border-radius: 30px; font-size: 13px; z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        #app-container { display: none; height: 100%; max-width: 1400px; margin: 0 auto; width: 100%; background: var(--bg-body); }
+        .container { display: flex; height: 100%; width: 100%; }
+        .sidebar { width: 240px; background: var(--bg-white); border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; flex-shrink: 0; }
+        .main { flex: 1; overflow-y: auto; padding: 24px; max-width: 100%; }
+        @media (max-width: 768px) { #app-container { flex-direction: column; } .sidebar { width: 100%; height: auto; flex-direction: row; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 12px; white-space: nowrap; } .sidebar h1 { display: none; } .main { padding: 16px; } }
+        
+        /* === 组件 === */
+        .nav-btn { display: flex; align-items: center; gap: 12px; padding: 12px 16px; width: 100%; border: none; background: none; cursor: pointer; color: var(--text-sub); border-radius: 12px; margin-bottom: 4px; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+        .nav-btn:hover { background: #F9FAFB; color: var(--text-main); }
+        .nav-btn.active { background: #ECFDF5; color: var(--primary-dark); }
+        .card { background: var(--bg-white); border-radius: 16px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.02); }
+        .btn { background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 500; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; }
+        .btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-outline:hover { background: #F9FAFB; border-color: #D1D5DB; }
+        .input { border: 1px solid #D1D5DB; padding: 12px; border-radius: 10px; width: 100%; margin-bottom: 12px; font-size: 14px; background: #F9FAFB; transition: 0.2s; outline: none; }
+        .input:focus { background: #fff; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
+        
+        .flex { display: flex; gap: 12px; align-items: center; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+        .hidden { display: none !important; }
+        
+        /* 进度条与图表 */
+        .progress-bg { background: #F3F4F6; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; }
+        .progress-bar { height: 100%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        .chart-label { font-size: 10px; fill: #9CA3AF; }
+        .chart-axis { stroke: #E5E7EB; stroke-width: 1; vector-effect: non-scaling-stroke; }
+        
+        /* 表格与标签 */
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { text-align: left; padding: 12px 8px; color: var(--text-sub); font-weight: 500; border-bottom: 1px solid var(--border); }
+        td { padding: 14px 8px; border-bottom: 1px solid #F3F4F6; color: var(--text-main); }
+        tr:last-child td { border-bottom: none; }
+        .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; border: 1px solid; }
+        .tag-mine { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+        .tag-other { background: #F3F4F6; color: #6B7280; border-color: #E5E7EB; }
+        
+        /* 特殊组件 */
+        .weight-input-container { display: flex; gap: 12px; align-items: center; }
+        .weight-input-box { flex: 1; display: flex; flex-direction: column; }
+        .weight-label { font-size: 12px; color: var(--text-sub); margin-bottom: 4px; font-weight: 500; }
+        .fixed-height-input { height: 44px; margin: 0 !important; } 
+        .input-group { display: flex; border: 1px solid #D1D5DB; border-radius: 10px; overflow: hidden; background: #fff; height: 44px; transition: border-color 0.2s; }
+        .input-group:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
+        .input-group input { border: none; margin: 0; flex: 1; padding: 0 12px; height: 100%; background: transparent; outline: none; }
+        .input-group select { border: none; background: #F9FAFB; padding: 0 12px; border-left: 1px solid #D1D5DB; color: var(--text-main); outline: none; height: 100%; font-size: 13px; cursor: pointer; }
+        .input-group select:hover { background: #F3F4F6; }
+        .period-btn { color: var(--pink); }
+        .period-btn.active { background: #FCE7F3; color: #BE185D; }
+    </style>
+</head>
+<body>
+
+<div id="auth-overlay">
+    <div class="auth-box">
+        <div style="font-size: 48px; margin-bottom: 10px;">🥑</div>
+        <h2 id="auth-title" class="auth-title">NutriFit</h2>
+        <p id="auth-sub" class="auth-sub">登录以同步您的健康数据</p>
+        
+        <div id="login-form">
+            <input id="l-email" type="email" class="input" placeholder="邮箱地址">
+            <input id="l-pass" type="password" class="input" placeholder="密码">
+            <button class="btn" style="width:100%; padding:12px; font-size:16px;" onclick="Auth.login()">立即登录</button>
+            <p style="margin-top:20px; font-size:13px; color:#666;">还没有账号？ <span style="color:var(--primary); cursor:pointer; font-weight:600" onclick="Auth.toggleView('reg')">注册新账号</span></p>
+        </div>
+
+        <div id="reg-form" class="hidden">
+            <input id="r-code" type="text" class="input" placeholder="✨ 管理员邀请码 (必填)">
+            <input id="r-email" type="email" class="input" placeholder="邮箱地址">
+            <input id="r-pass" type="password" class="input" placeholder="设置密码 (至少6位)">
+            <div style="height:1px; background:#eee; margin:10px 0;"></div>
+            <input id="r-nick" type="text" class="input" placeholder="昵称 (唯一)">
+            <div style="margin-bottom:15px; display:flex; justify-content:center; gap:20px; font-size:14px;">
+                <label style="cursor:pointer"><input type="radio" name="r-gender" value="male" checked> 男 👦</label>
+                <label style="cursor:pointer"><input type="radio" name="r-gender" value="female"> 女 👧</label>
+            </div>
+            <div class="grid-2">
+                <input id="r-height" type="number" class="input" placeholder="身高 (cm)">
+                <input id="r-birth" type="date" class="input" placeholder="生日">
+            </div>
+            <button class="btn" style="width:100%; padding:12px; font-size:16px;" onclick="Auth.register()">完成注册</button>
+            <p style="margin-top:20px; font-size:13px; color:#666;">已有账号？ <span style="color:var(--primary); cursor:pointer; font-weight:600" onclick="Auth.toggleView('login')">返回登录</span></p>
+        </div>
+        
+        <p id="auth-msg" style="color:var(--red); font-size:13px; margin-top:15px; min-height:20px;"></p>
+        <div class="auth-footer"><div>NutriFit v1.1</div><div>作者：洋仔</div></div>
+    </div>
+</div>
+
+<div id="loading-spinner">☁️ 同步中...</div>
+
+<div id="app-container"> 
+    <div class="sidebar">
+        <div class="flex" style="margin-bottom:40px; font-weight:bold; color:#111; padding-left:8px; align-items:center;">
+            <div style="width:32px; height:32px; background:linear-gradient(135deg, #10B981, #059669); color:white; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px;">N</div>
+            <div style="display:flex; flex-direction:column;">
+                <span style="font-size:16px;">NutriFit</span>
+                <span id="user-nick-display" style="font-size:11px; color:#999; font-weight:normal;">未登录</span>
+            </div>
+        </div>
+        <button class="nav-btn active" onclick="App.setTab('home')"><span>📝</span> 饮食记录</button>
+        <button class="nav-btn" onclick="App.setTab('weight')"><span>⚖️</span> 体重 & BMI</button>
+        <button class="nav-btn" onclick="App.setTab('food')"><span>🍎</span> 食物数据库</button>
+        <button id="nav-period" class="nav-btn hidden" style="color:var(--pink)" onclick="App.setTab('period')"><span>🌸</span> 生理期记录</button>
+        <button class="nav-btn" onclick="App.setTab('manage')"><span>⚙️</span> 设置与资料</button>
+        <div style="flex:1"></div>
+        <button class="nav-btn" onclick="Auth.signOut()" style="color:var(--red); margin-top:20px;"><span>🚪</span> 退出账号</button>
+    </div>
+    <div class="main" id="app-content"></div>
+</div>
+
+<script>
+    // ================= 配置区 =================
+    const SUPABASE_URL = 'https://xgcysoizvuutbwjolfrl.supabase.co'; // <--- 替换这里
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnY3lzb2l6dnV1dGJ3am9sZnJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyNTk5NzUsImV4cCI6MjA4MDgzNTk3NX0.aRQIwXKxmR89Ob_ju92AAZGaz50ADD0JWliqsDO1sy4';                   // <--- 替换这里
+    const INVITE_CODE = 'lylovezh';                      // <--- 邀请码
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ================= 状态 =================
+    const State = { user: null, profile: {}, tab: 'home', date: new Date().toISOString().split('T')[0], weightUnit: 'kg', chartMode: 'bmi', foods: [], logs: [], weights: [], goals: {}, periods: [], editFoodId: null, editWeightId: null, showPublicFood: false };
+
+    // ================= 认证 =================
+    const Auth = {
+        async init() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) this.onLoginSuccess(session.user);
+        },
+        toggleView(view) {
+            document.getElementById('login-form').classList.toggle('hidden', view !== 'login');
+            document.getElementById('reg-form').classList.toggle('hidden', view !== 'reg');
+            document.getElementById('auth-title').innerText = view === 'login' ? 'NutriFit' : '创建账号';
+            document.getElementById('auth-sub').innerText = view === 'login' ? '登录以同步您的健康数据' : '请输入管理员提供的邀请码';
+            document.getElementById('auth-msg').innerText = '';
+        },
+        async login() {
+            const email = document.getElementById('l-email').value.trim();
+            const password = document.getElementById('l-pass').value.trim();
+            if(!email || !password) return this.msg('请输入邮箱和密码');
+            App.loading(true);
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            App.loading(false);
+            if (error) this.msg('登录失败: ' + error.message);
+            else if (data.session) this.onLoginSuccess(data.session.user);
+        },
+        async register() {
+            const code = document.getElementById('r-code').value.trim();
+            if (code !== INVITE_CODE) return this.msg('🚫 邀请码错误，无法注册');
+            const email = document.getElementById('r-email').value.trim();
+            const password = document.getElementById('r-pass').value.trim();
+            const nick = document.getElementById('r-nick').value.trim();
+            const height = document.getElementById('r-height').value;
+            const birth = document.getElementById('r-birth').value;
+            const gender = document.querySelector('input[name="r-gender"]:checked').value;
+            if(!email || password.length<6 || !nick || !height || !birth) return this.msg('请填写所有必填项');
+            App.loading(true);
+            const { data, error } = await supabase.auth.signUp({ email, password });
+            if (error) { App.loading(false); return this.msg(error.message); }
+            const userId = data.user.id;
+            const { error: pErr } = await supabase.from('profiles').insert([{ id: userId, nickname: nick, height, birthdate: birth, gender }]);
+            if(pErr) { App.loading(false); return this.msg('注册失败(昵称重复?): ' + pErr.message); }
+            this.msg('注册成功！正在登录...');
+            if(data.session) this.onLoginSuccess(data.session.user);
+            else { App.loading(false); this.msg('注册成功，请去邮箱确认'); }
+        },
+        async signOut() { if(confirm('确定要退出当前账号吗？')) { await supabase.auth.signOut(); location.reload(); } },
+        async deleteAccount() {
+            if(!confirm('⚠️ 第一次确认：\n此操作将永久删除您的账号及所有数据，不可恢复！')) return;
+            if(!confirm('⚠️ 第二次确认：\n您的所有记录都将立即清空。')) return;
+            const code = prompt('⚠️ 最终确认：\n请输入 "DELETE" 以确认注销');
+            if(code !== 'DELETE') return alert('操作已取消');
+            App.loading(true);
+            await supabase.from('diet_logs').delete().eq('user_id', State.user.id);
+            await supabase.from('weight_logs').delete().eq('user_id', State.user.id);
+            await supabase.from('user_goals').delete().eq('user_id', State.user.id);
+            await supabase.from('menstruation_logs').delete().eq('user_id', State.user.id);
+            await supabase.from('foods').delete().eq('user_id', State.user.id);
+            await supabase.from('profiles').delete().eq('id', State.user.id);
+            await supabase.auth.signOut();
+            alert('账号已注销'); location.reload();
+        },
+        msg(txt) { document.getElementById('auth-msg').innerText = txt; },
+        async onLoginSuccess(user) {
+            State.user = user;
+            const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+            State.profile = data || {};
+            document.getElementById('user-nick-display').innerText = State.profile.nickname || '未设置昵称';
+            if (State.profile.gender === 'female') document.getElementById('nav-period').classList.remove('hidden');
+            document.getElementById('auth-overlay').style.display = 'none';
+            document.getElementById('app-container').style.display = 'flex';
+            if (!State.profile.nickname) App.setTab('manage'); else App.initData();
+        }
+    };
+
+    // ================= 数据 =================
+    const DB = {
+        async fetchAll() {
+            App.loading(true);
+            const reqs = [
+                supabase.from('foods').select('*'),
+                supabase.from('user_goals').select('*').single(),
+                supabase.from('weight_logs').select('*').order('log_date', { ascending: false })
+            ];
+            if(State.profile.gender === 'female') reqs.push(supabase.from('menstruation_logs').select('*').order('start_date', { ascending: false }));
+            const results = await Promise.all(reqs);
+            State.foods = results[0].data || [];
+            if(!results[1].data) { await supabase.from('user_goals').insert([{ user_id: State.user.id }]); State.goals = { carbs:250, protein:120, fat:70 }; } 
+            else State.goals = results[1].data;
+            State.weights = results[2].data || [];
+            if(State.profile.gender === 'female') State.periods = results[3].data || [];
+            await this.fetchLogs(State.date);
+            App.loading(false); App.render();
+        },
+        async fetchLogs(date) { const { data } = await supabase.from('diet_logs').select('*').eq('log_date', date); State.logs = data || []; },
+        
+        async saveFood(food) {
+            const payload = { ...food, user_id: State.user.id, creator_name: State.profile.nickname || '匿名' };
+            let err;
+            if(State.editFoodId) { 
+                const { error } = await supabase.from('foods').update(food).eq('id', State.editFoodId);
+                err = error; 
+                if(!error) { 
+                    const idx = State.foods.findIndex(f=>f.id===State.editFoodId); 
+                    if(idx!==-1) State.foods[idx] = { ...State.foods[idx], ...food }; 
+                }
+            } else { 
+                const { data, error } = await supabase.from('foods').insert([payload]).select();
+                err = error; 
+                if(!error && data) State.foods.push(data[0]);
+            }
+            State.editFoodId = null; 
+            return err;
+        },
+        async deleteFood(id) { if(confirm('确定删除该食物吗？')) { const {error} = await supabase.from('foods').delete().eq('id', id); if(!error) { State.foods = State.foods.filter(f => f.id !== id); App.render(); } } },
+        async addLog(fid, amt) { const {data,error} = await supabase.from('diet_logs').insert([{ user_id: State.user.id, food_id: fid, amount: amt, log_date: State.date }]).select(); if(!error) { State.logs.push(data[0]); App.render(); } },
+        async deleteLog(id) { if(confirm('删除此记录?')) { const {error} = await supabase.from('diet_logs').delete().eq('id', id); if(!error) { State.logs = State.logs.filter(l => l.id !== id); App.render(); } } },
+        async saveWeight(date, weight) {
+            let err;
+            if(State.editWeightId) { const {error} = await supabase.from('weight_logs').update({ weight, log_date: date }).eq('id', State.editWeightId); err = error; }
+            else {
+                const { data: exist } = await supabase.from('weight_logs').select('id').eq('log_date', date).single();
+                if(exist) { const {error} = await supabase.from('weight_logs').update({ weight }).eq('id', exist.id); err=error; }
+                else { const {error} = await supabase.from('weight_logs').insert([{ user_id: State.user.id, log_date: date, weight }]); err=error; }
+            }
+            if(!err) { const {data} = await supabase.from('weight_logs').select('*').order('log_date', { ascending: false }); State.weights = data||[]; }
+            State.editWeightId = null; App.render(); return err;
+        },
+        async deleteWeight(id) { if(confirm('删除此体重?')) { const {error} = await supabase.from('weight_logs').delete().eq('id', id); if(!error) { State.weights = State.weights.filter(w => w.id !== id); App.render(); } } },
+        async upsertProfile(updates) { const { error } = await supabase.from('profiles').upsert({ id: State.user.id, ...updates }); if(!error) { State.profile = { ...State.profile, ...updates }; alert('资料已保存'); if(updates.gender==='female') document.getElementById('nav-period').classList.remove('hidden'); else document.getElementById('nav-period').classList.add('hidden'); App.render(); } else alert('保存失败: '+error.message); },
+        async saveGoals(ng) { const {error} = await supabase.from('user_goals').update(ng).eq('user_id', State.user.id); if(!error) { State.goals = {...State.goals, ...ng}; alert('目标已保存'); } },
+        async addPeriod(start, end) { const { data, error } = await supabase.from('menstruation_logs').insert([{ user_id: State.user.id, start_date: start, end_date: end || null }]).select(); if(!error) { State.periods.unshift(data[0]); App.render(); } },
+        async deletePeriod(id) { if(confirm('删除记录?')) { const {error} = await supabase.from('menstruation_logs').delete().eq('id', id); if(!error) { State.periods = State.periods.filter(p=>p.id!==id); App.render(); } } }
+    };
+
+    // ================= App =================
+    const App = {
+        loading(show) { document.getElementById('loading-spinner').style.display = show ? 'block' : 'none'; },
+        async initData() { await DB.fetchAll(); },
+        setTab(tab) { State.tab = tab; document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); event.target.closest('.nav-btn')?.classList.add('active'); this.render(); },
+        calcBMI(w) { if(!State.profile.height) return 0; const h = State.profile.height/100; return (w/(h*h)).toFixed(1); },
+        
+        getBMIColor(bmi) {
+            if(bmi < 18.5) return '#3B82F6'; if(bmi < 24) return '#10B981'; if(bmi < 27.9) return '#F59E0B'; 
+            if(bmi < 30) return '#F97316'; if(bmi < 35) return '#EF4444'; return '#7F1D1D';                
+        },
+
+        render() {
+            const c = document.getElementById('app-content'); c.innerHTML = '';
+            if(State.tab === 'home') this.renderHome(c);
+            else if(State.tab === 'weight') this.renderWeight(c);
+            else if(State.tab === 'period') this.renderPeriod(c);
+            else if(State.tab === 'food') this.renderFoodPage(c);
+            else this.renderManage(c);
+        },
+        
+        // 1. 饮食记录
+        renderHome(c) {
+            let t = { c:0, p:0, f:0, cal:0 };
+            State.logs.forEach(l => { const f = State.foods.find(x => x.id === l.food_id); if(f) { const r = l.amount/100; t.c+=f.carbs*r; t.p+=f.protein*r; t.f+=f.fat*r; t.cal+=(f.carbs*4+f.protein*4+f.fat*9)*r; } });
+            const gCal = State.goals.carbs*4 + State.goals.protein*4 + State.goals.fat*9;
+            const bar = (n, v, max, color) => { const l = Math.round(max - v); return `<div class="card" style="padding:15px; margin-bottom:0;"><div class="flex-between"><span style="font-weight:600;color:#555">${n}</span><span style="font-size:12px;color:${l<0?'red':'#888'}">${l<0?'超标 '+Math.abs(l):'剩 '+l}</span></div><div style="font-size:20px;font-weight:bold;margin:6px 0">${Math.round(v)} <span style="font-size:12px;color:#bbb">/${max}</span></div><div class="progress-bg"><div class="progress-bar" style="width:${Math.min(100, v/max*100)}%;background:${l<0?'red':color}"></div></div></div>`; };
+            let statusBadge = t.cal > gCal * 1.1 ? '<span style="background:#FEF2F2;color:#991B1B;padding:4px 8px;border-radius:12px;font-size:12px">⚠️ 热量超标</span>' : (t.cal < gCal * 0.8 ? '<span style="background:#EFF6FF;color:#1E40AF;padding:4px 8px;border-radius:12px;font-size:12px">📉 热量不足</span>' : '<span style="background:#ECFDF5;color:#065F46;padding:4px 8px;border-radius:12px;font-size:12px">✨ 饮食均衡</span>');
+            c.innerHTML = `<h2 style="margin-top:0">饮食记录</h2><div class="card flex-between" style="padding:15px;"><button class="btn btn-outline" onclick="App.changeDate(-1)">◀</button><div style="text-align:center"><div style="font-weight:bold">${State.date}</div>${statusBadge}</div><button class="btn btn-outline" onclick="App.changeDate(1)">▶</button></div>
+            <div class="grid-3" style="margin-bottom:20px">${bar('热量 (kcal)', t.cal, gCal, '#10B981')}${bar('碳水化合物 (g)', t.c, State.goals.carbs, '#3B82F6')}${bar('蛋白质 (g)', t.p, State.goals.protein, '#8B5CF6')}${bar('脂肪 (g)', t.f, State.goals.fat, '#F59E0B')}</div>
+            <div class="card"><h3>🍽️ 添加记录</h3><div class="flex" style="margin-bottom:15px"><select id="f-s" class="input" style="flex:2;margin:0"><option value="">+ 选择食物 (仅限我的食物库)</option>${State.foods.filter(f=>f.user_id===State.user.id).map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select><input id="f-a" type="number" class="input" placeholder="g" style="flex:1;margin:0"><button class="btn" onclick="App.addLog()">添加</button></div><p style="font-size:12px;color:#999;margin-top:-10px;margin-bottom:15px">* 如需添加公共食物，请先在“食物数据库”中复制到我的食物库</p><table>${State.logs.map(l=>{const f=State.foods.find(x=>x.id===l.food_id);return f?`<tr><td>${f.name}</td><td>${l.amount}g</td><td>${Math.round((f.carbs*4+f.protein*4+f.fat*9)*(l.amount/100))} kcal</td><td style="text-align:right"><span onclick="DB.deleteLog(${l.id})" style="color:#ccc;cursor:pointer">×</span></td></tr>`:'';}).join('')}</table></div>`;
+        },
+        async changeDate(off) { const d = new Date(State.date); d.setDate(d.getDate()+off); State.date = new Date(d.getTime()-(d.getTimezoneOffset()*60000)).toISOString().split('T')[0]; App.loading(true); await DB.fetchLogs(State.date); App.loading(false); this.render(); },
+        addLog() { const f=document.getElementById('f-s').value, a=document.getElementById('f-a').value; if(f&&a) DB.addLog(f, a); },
+
+        // 2. 体重
+        renderWeight(c) {
+            const showBMI = State.chartMode === 'bmi';
+            const wData = [...State.weights].reverse();
+            let svgContent = '';
+            if(wData.length > 1) {
+                const vals = wData.map(w => showBMI ? this.calcBMI(w.weight) : w.weight);
+                const maxVal = Math.max(...vals) * 1.05; const minVal = Math.min(...vals) * 0.95; const range = maxVal - minVal;
+                svgContent += `<line x1="30" y1="10" x2="30" y2="100" class="chart-axis"/><line x1="30" y1="100" x2="300" y2="100" class="chart-axis"/>`;
+                let points = vals.map((v, i) => { const x = 30 + (i / (vals.length - 1)) * 270; const y = 100 - ((v - minVal) / range) * 90; return `${x},${y}`; }).join(' ');
+                svgContent += `<polyline fill="none" stroke="#ddd" stroke-width="2" points="${points}"/>`;
+                vals.forEach((v, i) => { const x = 30 + (i / (vals.length - 1)) * 270; const y = 100 - ((v - minVal) / range) * 90; const color = showBMI ? this.getBMIColor(v) : '#3B82F6'; svgContent += `<circle cx="${x}" cy="${y}" r="3" fill="${color}" stroke="white" stroke-width="1"/>`; });
+                svgContent += `<text x="0" y="15" class="chart-label">${maxVal.toFixed(1)}</text><text x="0" y="100" class="chart-label">${minVal.toFixed(1)}</text>`;
+                svgContent += `<text x="30" y="115" class="chart-label">${wData[0].log_date.slice(5)}</text><text x="270" y="115" class="chart-label">${wData[wData.length-1].log_date.slice(5)}</text>`;
+            }
+            c.innerHTML = `<h2>体重 & BMI</h2><div class="card"><div class="flex-between" style="margin-bottom:10px"><span style="font-size:14px;color:#666">趋势图</span><div><button class="btn" style="font-size:12px;padding:4px 8px;background:${!showBMI?'#10B981':'#eee'};color:${!showBMI?'#fff':'#666'}" onclick="App.cm('weight')">体重</button><button class="btn" style="font-size:12px;padding:4px 8px;background:${showBMI?'#8B5CF6':'#eee'};color:${showBMI?'#fff':'#666'}" onclick="App.cm('bmi')">BMI</button></div></div><div style="width:100%;height:200px;border-bottom:1px solid #eee;">${wData.length<2 ? '<div style="text-align:center;color:#ccc;line-height:200px">记录2条以上显示</div>' : `<svg viewBox="0 0 320 130" style="width:100%;height:100%">${svgContent}</svg>`}</div>${showBMI ? '<div style="display:flex;gap:5px;font-size:10px;margin-top:5px;flex-wrap:wrap"><span style="color:#3B82F6">●过轻</span><span style="color:#10B981">●正常</span><span style="color:#F59E0B">●超重</span><span style="color:#F97316">●轻胖</span><span style="color:#EF4444">●中胖</span><span style="color:#7F1D1D">●重胖</span></div>' : ''}</div>
+            <div class="card" style="background:#EFF6FF;border:1px solid #BFDBFE"><div class="weight-input-container"><div class="weight-input-box"><label class="weight-label">日期</label><input type="date" id="w-d" class="input fixed-height-input" value="${State.date}"></div><div class="weight-input-box"><label class="weight-label">数值</label><div class="input-group"><input type="number" id="w-v" placeholder="0.0"><select id="w-u"><option value="kg">kg</option><option value="jin">斤</option></select></div></div></div><button class="btn" id="w-btn" style="width:100%; margin-top:12px;" onclick="App.addW()">保存记录</button>${State.editWeightId?'<button class="btn btn-outline" style="width:100%;margin-top:5px" onclick="App.cancelEditW()">取消编辑</button>':''}</div>
+            <div class="card"><table><thead><tr><th>日期</th><th>体重(kg)</th><th>BMI</th><th style="text-align:right">操作</th></tr></thead><tbody>${State.weights.map(w => {const bmi = this.calcBMI(w.weight); return `<tr><td>${w.log_date}</td><td><b>${w.weight}</b></td><td><span style="color:${this.getBMIColor(bmi)};font-weight:bold">${bmi}</span></td><td style="text-align:right"><button style="color:#3B82F6;border:none;background:none;cursor:pointer;margin-right:5px" onclick="App.editW('${w.id}','${w.log_date}',${w.weight})">编辑</button><button style="color:#ef4444;border:none;background:none;cursor:pointer" onclick="DB.deleteWeight(${w.id})">删除</button></td></tr>`; }).join('')}</tbody></table></div>`;
+        },
+        cm(m) { State.chartMode = m; this.render(); },
+        addW() { const d=document.getElementById('w-d').value, unit=document.getElementById('w-u').value; let v=parseFloat(document.getElementById('w-v').value); if(d&&v){ if(unit==='jin') v/=2; DB.saveWeight(d, v); } },
+        editW(id, d, v) { State.editWeightId = id; document.getElementById('w-d').value = d; document.getElementById('w-v').value = v; document.getElementById('w-btn').innerText = '更新记录'; this.render(); document.getElementById('w-d').value = d; document.getElementById('w-v').value = v; },
+        cancelEditW() { State.editWeightId = null; this.render(); },
+
+        // 3. 生理期
+        renderPeriod(c) {
+            let statusText = "暂无记录";
+            if(State.periods.length > 0) { const last = State.periods[0]; const diff = Math.floor((new Date()-new Date(last.start_date))/(1000*60*60*24))+1; statusText = `当前周期第 ${diff} 天 (开始于 ${last.start_date})`; }
+            c.innerHTML = `<h2>🌸 生理期</h2><div class="card" style="background:linear-gradient(135deg, #FCE7F3 0%, #FDF2F8 100%);border:1px solid #FBCFE8"><h3 style="color:#9D174D;margin-top:0">${statusText}</h3><div class="grid-2"><div><label class="text-sm">开始</label><input type="date" id="p-s" class="input"></div><div><label class="text-sm">结束 (可选)</label><input type="date" id="p-e" class="input"></div></div><button class="btn" style="background:#DB2777;width:100%" onclick="App.addP()">记录</button></div><div class="card"><h3>历史</h3><table><thead><tr><th>开始</th><th>结束</th><th>状态</th><th></th></tr></thead><tbody>${State.periods.map(p => `<tr><td>${p.start_date}</td><td>${p.end_date||'-'}</td><td>${p.end_date?'已结束':'进行中'}</td><td style="text-align:right"><span onclick="DB.deletePeriod(${p.id})" style="color:#DB2777;cursor:pointer">删除</span></td></tr>`).join('')}</tbody></table></div>`;
+        },
+        addP() { const s=document.getElementById('p-s').value, e=document.getElementById('p-e').value; if(s) DB.addPeriod(s, e); },
+
+        // 4. 食物库
+        renderFoodPage(c) {
+            c.innerHTML = `<h2>🍎 食物数据库</h2><div class="card"><div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid #eee;"><button class="nav-btn ${!State.showPublicFood?'active':''}" onclick="State.showPublicFood=false;App.render()">我的私有库</button><button class="nav-btn ${State.showPublicFood?'active':''}" onclick="State.showPublicFood=true;App.render()">公共大厅</button></div>
+                ${!State.showPublicFood ? `
+                    <div style="background:#F9FAFB;padding:16px;border-radius:12px;border:1px dashed #ccc;margin-bottom:20px">
+                        <h4 style="margin:0 0 10px 0; font-size:14px; color:#555">${State.editFoodId?'编辑食物':'创建新食物'} (任意重量自动转100g)</h4>
+                        <div class="flex" style="flex-wrap:wrap; gap:8px;">
+                            <div style="flex:2;min-width:120px;"><label class="text-sub" style="font-size:12px">名称</label><input id="nf-n" class="input" style="margin:0"></div>
+                            <div style="flex:1;min-width:80px;"><label class="text-sub" style="font-size:12px">参考重量(g)</label><input id="nf-base" type="number" class="input" value="100" style="margin:0"></div>
+                        </div>
+                        <div class="flex" style="flex-wrap:wrap; gap:8px; margin-top:8px;">
+                            <div style="flex:1;"><label class="text-sub" style="font-size:12px">碳水</label><input id="nf-c" type="number" class="input" style="margin:0"></div>
+                            <div style="flex:1;"><label class="text-sub" style="font-size:12px">蛋白质</label><input id="nf-p" type="number" class="input" style="margin:0"></div>
+                            <div style="flex:1;"><label class="text-sub" style="font-size:12px">脂肪</label><input id="nf-f" type="number" class="input" style="margin:0"></div>
+                        </div>
+                        <div style="margin-top:12px; text-align:right;">
+                            ${State.editFoodId?'<button class="btn btn-outline" style="margin-right:8px" onclick="App.cancelEditF()">取消</button>':''}
+                            <button id="f-btn" class="btn" onclick="App.saveF()">${State.editFoodId?'保存修改':'新增到我的'}</button>
+                        </div>
+                    </div>` : `<div style="margin-bottom:15px"><input id="f-filter" class="input" placeholder="🔍 搜索公共食物..." oninput="App.renderFoodList()"></div>`}
+                <div id="ft-c" style="max-height:500px;overflow-y:auto"></div></div>`;
+            this.renderFoodList();
+        },
+        renderFoodList() {
+            const container = document.getElementById('ft-c'); const isPublic = State.showPublicFood; const filter = document.getElementById('f-filter')?.value.toLowerCase() || '';
+            const list = State.foods.filter(f => { if(isPublic) return f.user_id !== State.user.id && (!filter || f.name.toLowerCase().includes(filter)); else return f.user_id === State.user.id; });
+            container.innerHTML = list.length === 0 ? '<div style="text-align:center;color:#999;padding:20px">暂无数据</div>' : `<table><tbody>${list.map(f => {
+                const actionBtn = isPublic ? `<button class="btn btn-sm" style="background:var(--blue);font-size:12px;padding:4px 8px;" onclick="App.copyFood(${f.id})">收藏</button>` : `<button style="color:#3B82F6;border:none;background:none;cursor:pointer;margin-right:8px" onclick="App.editF(${f.id}, '${f.name}', ${f.carbs}, ${f.protein}, ${f.fat})">✏️</button><span onclick="DB.deleteFood(${f.id})" style="color:#ccc;cursor:pointer">🗑️</span>`;
+                return `<tr><td><b>${f.name}</b> <span class="tag-other" style="font-size:9px">${f.creator_name||'未知'}</span></td><td style="font-size:12px;color:#666">C:${f.carbs} P:${f.protein} F:${f.fat}</td><td style="text-align:right">${actionBtn}</td></tr>`;
+            }).join('')}</tbody></table>`;
+        },
+        async copyFood(id) { const target = State.foods.find(f => f.id === id); if(target && confirm(`将【${target.name}】添加到你的私有库？`)) { await DB.saveFood({ name: target.name, carbs: target.carbs, protein: target.protein, fat: target.fat }); alert('添加成功！'); State.showPublicFood = false; App.render(); } },
+        saveF() { 
+            const n=document.getElementById('nf-n').value, base=parseFloat(document.getElementById('nf-base').value);
+            if(!n || !base || base<=0) return alert('请填写名称和有效的参考重量');
+            const ratio = 100/base;
+            const food = { name:n, carbs:(parseFloat(document.getElementById('nf-c').value)||0)*ratio, protein:(parseFloat(document.getElementById('nf-p').value)||0)*ratio, fat:(parseFloat(document.getElementById('nf-f').value)||0)*ratio }; 
+            DB.saveFood(food).then(err => { if(!err) { if(State.editFoodId) App.cancelEditF(); else { App.renderFoodList(); document.getElementById('nf-n').value=''; } } else alert(err.message); }); 
+        },
+        editF(id, n, c, p, f) { State.editFoodId = id; this.renderFoodPage(document.getElementById('app-content')); setTimeout(() => { document.getElementById('nf-n').value = n; document.getElementById('nf-c').value = c; document.getElementById('nf-p').value = p; document.getElementById('nf-f').value = f; document.getElementById('nf-base').value = 100; }, 0); },
+        cancelEditF() { State.editFoodId = null; this.renderFoodPage(document.getElementById('app-content')); },
+
+        // 5. 设置
+        renderManage(c) {
+            const p = State.profile;
+            c.innerHTML = `<h2>设置与资料</h2><div class="card"><h3>👤 资料</h3><div class="grid-2"><div><label class="text-sub" style="font-size:12px">昵称</label><input id="p-n" class="input" value="${p.nickname||''}"></div><div><label class="text-sub" style="font-size:12px">身高(cm)</label><input id="p-h" type="number" class="input" value="${p.height||''}"></div><div><label class="text-sub" style="font-size:12px">生日</label><input id="p-b" type="date" class="input" value="${p.birthdate||''}"></div><div><label class="text-sub" style="font-size:12px">性别</label><input class="input" value="${p.gender==='male'?'男':'女'}" readonly style="background:#eee"></div><div style="grid-column:span 2"><button class="btn" style="width:100%" onclick="App.upP()">保存所有资料</button></div></div></div><div class="card" style="border-left:4px solid #3B82F6"><h3>🎯 每日目标</h3><div class="grid-3"><div><label class="text-sub" style="font-size:12px">碳水化合物</label><input id="g-c" type="number" class="input" value="${State.goals.carbs}"></div><div><label class="text-sub" style="font-size:12px">蛋白质</label><input id="g-p" type="number" class="input" value="${State.goals.protein}"></div><div><label class="text-sub" style="font-size:12px">脂肪</label><input id="g-f" type="number" class="input" value="${State.goals.fat}"></div></div><button class="btn" style="width:100%;margin-top:10px;background:#3B82F6" onclick="App.saveG()">保存目标</button></div><div style="text-align:center;margin-top:40px"><button class="btn" style="background:var(--red);font-size:12px;padding:8px 20px" onclick="Auth.deleteAccount()">⚠️ 注销账号 (删除所有数据)</button></div>`;
+        },
+        upP() { const n=document.getElementById('p-n').value, h=document.getElementById('p-h').value, b=document.getElementById('p-b').value; if(n&&h&&b) DB.upsertProfile({ nickname:n, height:h, birthdate:b }); },
+        saveG() { DB.saveGoals({ carbs:document.getElementById('g-c').value, protein:document.getElementById('g-p').value, fat:document.getElementById('g-f').value }); }
+    };
+    window.onload = () => Auth.init();
+</script>
+</body>
+</html>
